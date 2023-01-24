@@ -1,62 +1,53 @@
 import json
 
-from fastapi import FastAPI
-from dotenv import load_dotenv
 import uvicorn
-from langchain import OpenAI, PromptTemplate, LLMChain
-load_dotenv()
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from langchain import OpenAI, PromptTemplate, SQLDatabaseChain, SQLDatabase
+from pydantic import BaseModel
 
+load_dotenv()
 
 app = FastAPI()
 
 
-@app.get("/todo/{api_call}")
-async def todo(api_call: str):
-    print(f"API call: {api_call}")
-    state = json.loads(open("state.json", "r").read())
+class Command(BaseModel):
+    text: str
 
-    print(f"State: {state}")
 
-    prompt_template = """
-You have to act as a backend server for a web application that allows users to manage TODO lists.
-You receive requests and based on the type and content of the request, you have to update the database state and return
-a response.
+@app.post("/todo")
+async def todo(api_call: Command):
+    llm = OpenAI(temperature=0)
+    _DEFAULT_TEMPLATE = """
+    You have to act as a backend server for a web application that allows users to manage TODO lists.
+    You receive requests and based on the type and content of the request, you have to update the database state and return
+    a response.
 
-The database state is a json object that currently looks like this:
+    Given the request, first create a syntactically correct {dialect} query to run, then look at the results of the query and return the answer.
+    Use the following format:
 
-{state}
+    Question: "Question here"
+    SQLQuery: "SQL Query to run"
+    SQLResult: "Result of the SQLQuery"
+    Answer: "Final answer here"
+    JSON: "JSON response here, list of objects"
 
-Ther received request is as follows: {api_call}
+    Only use the following tables:
 
-Based on the request, you have to update the database state and return a response.
-If the response does not modify the database state, then return the response without modifying the database state.
+    {table_info}
+    
+    If the request is about needing to do something, add the task to the database as a new TODO item.
 
-If the requested action is not supported, then return a response with status code 400.
-
-If the requested item name or id is not part of the state, then return a response with status code 404.
-
-The response should only contain a valid serialized JSON string using double quotes and strictly nothing else.
-Without any quotes. Always start your response with the word "Response: ".
-    """
-
-    prompt = PromptTemplate(
-        input_variables=["state", "api_call"],
-        template=prompt_template,
+    Question: {input}"""
+    p = PromptTemplate(
+        input_variables=["input", "table_info", "dialect"], template=_DEFAULT_TEMPLATE
     )
 
-    llm_chain = LLMChain(prompt=prompt, llm=OpenAI(temperature=0))
-    res = llm_chain.predict(state=json.dumps(state), api_call=api_call)
-    # clean response
-    res = res.split("Response: ")[1]
-    # replace single quotes with double quotes
-    res = res.replace("'", '"')
-    res = json.loads(res)
-    if "todos" in res:
-        with open("state.json", "w") as f:
-            f.write(json.dumps(res))
-    return res
+    db = SQLDatabase.from_uri("sqlite:///todos.db")
+
+    db_chain = SQLDatabaseChain(llm=llm, database=db, prompt=p)
+    return json.loads(db_chain.run(api_call.text).split("JSON: ")[1])
 
 
 if __name__ == "__main__":
-
     uvicorn.run(app)
