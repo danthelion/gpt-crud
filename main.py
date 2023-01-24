@@ -18,7 +18,7 @@ class Command(BaseModel):
 @app.post("/todo")
 async def todo(command: Command):
     p = PromptTemplate(input_variables=["input", "table_info", "dialect"], template=open("command.template").read())
-    chain = SQLDatabaseChain(llm=OpenAI(temperature=0), database=SQLDatabase.from_uri("sqlite:///todos.db"), prompt=p)
+    chain = SQLDatabaseChain(llm=OpenAI(temperature=0), database=SQLDatabase.from_uri("sqlite:///todos.db"), prompt=p, verbose=True)
     return json.loads(chain.run(command.text).split("JSON: ")[1])
 
 
