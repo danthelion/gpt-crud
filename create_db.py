@@ -1,5 +1,3 @@
-# create sqlite db with sample todo records
-
 import sqlite3
 
 conn = sqlite3.connect("todos.db")
